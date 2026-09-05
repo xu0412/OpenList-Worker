@@ -332,6 +332,64 @@ export function parseShareEntries(raw: string): Array<{ linkID: string; password
  *  - "2024-09-05 12:30:45"（空格分隔，前端 new Date 可能解析失败导致 NaN）
  *  - 标准 ISO（直接透传）
  *  解析失败时回退为当前时间，避免前端出现 NaN-NaN-NaN。 */
+/** 从分享目录项中按多候选键提取 ID（不同版本接口字段大小写不一致） */
+function pickShareId(obj: any, keys: string[]): string {
+  for (const k of keys) {
+    const v = obj?.[k]
+    if (v !== undefined && v !== null && String(v) !== "") {
+      return String(v)
+    }
+  }
+  return ""
+}
+
+/**
+ * 将 getOutLinkInfoV6 的 data 映射为通用 files/folders 结构。
+ * 防御性处理：
+ *  - ID 字段兼容 caId/caID/id 与 coId/coID/id 等命名；
+ *  - 缺失 ID 的项直接跳过 —— 否则 nodeID 为空会在导航时回落到 "root"，
+ *    造成「每层都列出根目录、只能进入一级目录」的假象。
+ */
+export function mapShareListData(
+  data: any,
+  ref: ShareRef,
+): {
+  files: Yun139FileItem[]
+  folders: Array<{ catalogID: string; catalogName: string; updateTime?: string }>
+} {
+  const caLst = data?.caLst || []
+  const coLst = data?.coLst || []
+  const folders: Array<{ catalogID: string; catalogName: string; updateTime?: string }> = []
+  for (const c of caLst) {
+    const caId = pickShareId(c, ["caId", "caID", "ca_id", "id"])
+    if (!caId) {
+      console.warn("[139 share] skip folder item without id:", JSON.stringify(c)?.slice(0, 200))
+      continue
+    }
+    folders.push({
+      catalogID: encodeShareRef({ linkID: ref.linkID, password: ref.password, nodeID: caId }),
+      catalogName: c.caName || "",
+      updateTime: yun139TimeToIso(c.udTime),
+    })
+  }
+  const files: Yun139FileItem[] = []
+  for (const c of coLst) {
+    const coId = pickShareId(c, ["coId", "coID", "co_id", "id"])
+    if (!coId) {
+      console.warn("[139 share] skip file item without id:", JSON.stringify(c)?.slice(0, 200))
+      continue
+    }
+    files.push({
+      contentID: encodeShareRef({ linkID: ref.linkID, password: ref.password, nodeID: coId }),
+      contentName: c.coName || "",
+      contentSize: c.coSize,
+      updateTime: yun139TimeToIso(c.udTime),
+      createTime: yun139TimeToIso(c.udTime),
+    })
+  }
+  return { files, folders }
+}
+
 export function yun139TimeToIso(t?: string): string {
   const fallback = new Date().toISOString()
   if (!t) return fallback
@@ -1017,28 +1075,7 @@ export class Yun139ApiClient {
       },
     ) as ShareListResp
 
-    const folders: Array<{ catalogID: string; catalogName: string; updateTime?: string }> =
-      (resp.data?.caLst || []).map((c) => ({
-        catalogID: encodeShareRef({
-          linkID: ref.linkID,
-          password: ref.password,
-          nodeID: c.caId || "",
-        }),
-        catalogName: c.caName || "",
-        updateTime: yun139TimeToIso(c.udTime),
-      }))
-    const files: Yun139FileItem[] = (resp.data?.coLst || []).map((c) => ({
-      contentID: encodeShareRef({
-        linkID: ref.linkID,
-        password: ref.password,
-        nodeID: c.coId || "",
-      }),
-      contentName: c.coName || "",
-      contentSize: c.coSize,
-      updateTime: yun139TimeToIso(c.udTime),
-      createTime: yun139TimeToIso(c.udTime),
-    }))
-    return { files, folders }
+    return mapShareListData(resp.data, ref)
   }
 
   /** 合并多个分享的根目录/同名目录（与 Go shareGetMergedFiles 对齐）。 */

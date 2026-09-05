@@ -11,6 +11,7 @@ import {
   decodeShareRefs,
   sortedJsonStringify,
   yun139TimeToIso,
+  mapShareListData,
 } from "./util"
 
 test("Yun139 calculation and signing", () => {
@@ -239,4 +240,31 @@ test("share type rejects file operations", async () => {
   await assert.rejects(() => driver.mkdir("/", "/newdir"), /not supported/)
   await assert.rejects(() => driver.rename("/", "/a", "b"), /not supported/)
   await assert.rejects(() => driver.remove("/", "/", ["a"]), /not supported/)
+})
+
+test("mapShareListData tolerates alt id keys and skips empty ids", () => {
+  const ref = { linkID: "L", password: "", nodeID: "root" }
+  const { files, folders } = mapShareListData(
+    {
+      caLst: [
+        { caID: "caA", caName: "d1", udTime: "20240905000000" },
+        { caName: "bad-folder" }, // 无 ID：必须跳过，否则导航回落 root
+        { id: "caB", caName: "d2" },
+      ],
+      coLst: [
+        { coID: "co1", coName: "f1.txt", coSize: 5, udTime: "20240905123045" },
+        { coName: "bad-file" },
+      ],
+    },
+    ref,
+  )
+  assert.equal(folders.length, 2)
+  assert.equal(folders[0].catalogName, "d1")
+  assert.equal(decodeShareRefs(folders[0].catalogID)?.[0].nodeID, "caA")
+  assert.equal(folders[1].catalogName, "d2")
+  assert.equal(decodeShareRefs(folders[1].catalogID)?.[0].nodeID, "caB")
+  assert.equal(files.length, 1)
+  assert.equal(files[0].contentName, "f1.txt")
+  assert.equal(decodeShareRefs(files[0].contentID || "")?.[0].nodeID, "co1")
+  assert.ok(!files[0].updateTime!.includes("NaN"))
 })
