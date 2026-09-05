@@ -46,6 +46,14 @@ export interface Yun139FileItem {
   caID?: string
 }
 
+export interface Yun139FolderItem {
+  catalogID: string
+  catalogName: string
+  createTime?: string
+  updateTime?: string
+}
+
+/** 个人盘(旧 orchestration) / 通用磁盘列表响应 */
 export interface Yun139DiskResp {
   code: string
   message: string
@@ -123,5 +131,132 @@ export interface PersonalDownloadResp {
     url?: string
     cdnUrl?: string
     cdnSwitch?: boolean
+  }
+}
+
+/* ===================== 家庭云 (family) ===================== */
+
+export interface FamilyContentItem {
+  contentID?: string
+  contentName?: string
+  contentSize?: number
+  contentType?: number
+  contentSuffix?: string
+  createTime?: string
+  lastUpdateTime?: string
+  thumbnailURL?: string
+  bigThumbnailURL?: string
+  presentURL?: string
+  digest?: string
+}
+
+export interface FamilyCatalogItem {
+  catalogID?: string
+  catalogName?: string
+  createTime?: string
+  lastUpdateTime?: string
+}
+
+/** familyCloud-rebuild/content/v1.2/queryContentList 响应 */
+export interface QueryContentListResp {
+  code?: string
+  message?: string
+  success: boolean
+  data?: {
+    result?: {
+      resultCode?: string
+      resultDesc?: string
+    }
+    path?: string
+    cloudContentList?: FamilyContentItem[]
+    cloudCatalogList?: FamilyCatalogItem[]
+    totalCount?: number
+  }
+}
+
+/** familyCloud-rebuild/content/v1.0/getFileDownLoadURL 响应 */
+export interface FamilyDownloadResp {
+  code?: string
+  message?: string
+  success: boolean
+  data?: {
+    downloadURL?: string
+  }
+}
+
+/** andAlbum/openApi 接口通用结果包装 */
+export interface AndAlbumResultResp {
+  success?: boolean
+  code?: string
+  message?: string
+  result?: {
+    resultCode?: string
+    resultDesc?: string
+  }
+}
+
+/* ===================== 分享链接 (share) ===================== */
+
+/** 分享引用：link_id + 密码 + 节点 id */
+export interface ShareRef {
+  linkID: string
+  password: string
+  nodeID: string
+}
+
+export interface ShareCatalogItem {
+  caId?: string
+  caName?: string
+  udTime?: string
+}
+
+export interface ShareContentItem {
+  coId?: string
+  coName?: string
+  coSize?: number
+  coType?: number
+  udTime?: string
+  coPath?: string
+  presentURL?: string
+  downloadURL?: string
+}
+
+/** yun-share/richlifeApp/devapp/IOutLink/getOutLinkInfoV6 响应 */
+export interface ShareListResp {
+  code?: string
+  message?: string
+  success: boolean
+  data?: {
+    lkName?: string
+    password?: string
+    caLst?: ShareCatalogItem[]
+    coLst?: ShareContentItem[]
+  }
+}
+
+/** yun-share/richlifeApp/devapp/IOutLink/getContentInfoFromOutLink 响应 */
+export interface ShareContentInfoResp {
+  code?: string
+  message?: string
+  success: boolean
+  data?: {
+    contentInfo?: {
+      presentURL?: string
+      cdnDownLoadUrl?: string
+    }
+  }
+}
+
+/** yun-share/richlifeApp/devapp/IOutLink/dlFromOutLinkV3 响应 */
+export interface ShareDownloadResp {
+  code?: string
+  message?: string
+  success: boolean
+  data?: {
+    downloadURL?: string
+    redrUrl?: string
+    extInfo?: {
+      cdnDownloadUrl?: string
+    }
   }
 }

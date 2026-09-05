@@ -2756,7 +2756,8 @@ const driverConfigs: Record<string, any> = {
         name: "authorization",
         type: "text",
         default: "",
-        required: true,
+        // 个人/家庭/群组必填；type=share 时可留空匿名浏览分享链接
+        required: false,
       },
       {
         name: "root_folder_id",
