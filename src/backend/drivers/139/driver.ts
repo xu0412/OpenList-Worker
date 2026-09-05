@@ -232,7 +232,23 @@ export class Yun139Driver implements StorageDriver {
     const folder = disk.folders.find((f) => f.catalogName === name)
     if (folder) return this.mapFolder(folder)
     const file = disk.files.find((f) => f.contentName === name)
-    if (file) return this.mapFile(file)
+    if (file) {
+      const item = this.mapFile(file)
+      if (file.contentID) {
+        try {
+          item.raw_url = await this.client.familyDownloadUrl(file.contentID, disk.path)
+          item.raw_url_headers = {
+            Referer: "https://yun.139.com/",
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          }
+        } catch (e) {
+          item.raw_url_error = `139 家庭云获取下载链接失败：${(e as Error)?.message || String(e)}`
+          console.warn("[139] family getDownloadUrl failed in get():", e)
+        }
+      }
+      return item
+    }
     throw new Error(`Item not found: ${clean}`)
   }
 
@@ -285,6 +301,19 @@ export class Yun139Driver implements StorageDriver {
       if (file) {
         matched = this.mapFile(file)
         if (i !== parts.length - 1) throw new Error(`Item not found: ${clean}`)
+        // 分享文件：raw 下载流程只读 get() 的 raw_url，这里直接解析直链
+        const decoded = decodeShareRefs(matched.sign)
+        if (decoded && decoded.length > 0) {
+          try {
+            matched.raw_url = await this.client.shareDownloadUrl(
+              decoded[0],
+              decoded[0].nodeID,
+            )
+          } catch (e) {
+            matched.raw_url_error = `139 分享获取下载链接失败：${(e as Error)?.message || String(e)}`
+            console.warn("[139] share getDownloadUrl failed in get():", e)
+          }
+        }
         break
       }
       throw new Error(`Item not found: ${clean}`)

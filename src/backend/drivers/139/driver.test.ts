@@ -171,6 +171,16 @@ test("Yun139Driver family honors root_folder_id", async () => {
     items[0].modified,
     new Date(2024, 8, 5, 12, 30, 45).toISOString(),
   )
+
+  // get() 文件应携带 raw_url（raw 下载流程只读 get 的 raw_url）
+  ;(driver as any).client.familyDownloadUrl = async (id: string, path: string) =>
+    `https://dl.example/${id}?path=${encodeURIComponent(path)}`
+  const file = await driver.get("/a.txt", "/a.txt")
+  assert.equal(
+    file.raw_url,
+    "https://dl.example/f1?path=root%3A%2FfamilyRoot%2Fcat_base_1",
+  )
+  assert.ok(file.raw_url_headers)
 })
 
 test("Yun139Driver share list uses root refs and merged listing", async () => {
