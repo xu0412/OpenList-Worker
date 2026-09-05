@@ -60,11 +60,33 @@ function run(cmd, opts = {}) {
   }
 }
 
-/** 解析 `wrangler kv namespace list` 的表格输出，返回 { id: title } 映射
- *  注意：wrangler 4.x 在 Windows 输出 Unicode 竖线 │，其他平台为 | */
+/** 解析 `wrangler kv namespace list` 输出，返回 { title: id } 映射。
+ *  兼容两种 wrangler 输出：
+ *    - 4.118+：纯 JSON 数组 [{ id, title, ... }]
+ *    - 旧版：表格行（│ <id> │ <title> │，兼容 | 和 │，Windows 用 Unicode 竖线） */
 function parseNamespaceList(stdout) {
   const map = {}
-  // 表格行: │ <id> │ <title> │  （兼容 | 和 │）
+  const text = String(stdout || "").trim()
+  if (text) {
+    const start = text.indexOf("[")
+    const end = text.lastIndexOf("]")
+    if (start !== -1 && end > start) {
+      try {
+        const arr = JSON.parse(text.substring(start, end + 1))
+        if (Array.isArray(arr)) {
+          for (const item of arr) {
+            if (item && item.id && item.title) {
+              map[String(item.title)] = String(item.id)
+            }
+          }
+          return map
+        }
+      } catch {
+        // JSON 解析失败时退回表格解析
+      }
+    }
+  }
+  // 表格行: │ <id> │ <title> │
   const re = /[|│]\s*([0-9a-fA-F]{32})\s*[|│]\s*([^|│\n]+?)\s*[|│]/g
   let m
   while ((m = re.exec(stdout)) !== null) {
@@ -73,9 +95,26 @@ function parseNamespaceList(stdout) {
   return map
 }
 
-/** 从 `wrangler kv namespace create` 输出提取 id（剥离 ANSI 颜色码） */
+/** 从 `wrangler kv namespace create` 输出提取 id（剥离 ANSI 颜色码）。
+ *  兼容：旧版 `id = "..."`、以及个别环境直接输出 JSON `{ "id": "..." }`。
+ *  注意：wrangler 4.118+ 创建成功不再打印 id（只打印 ✨ Success!），
+ *  此时返回 null，调用方应改用「创建后重新 list 校验」。 */
 function parseCreatedId(stdout) {
-  const clean = String(stdout).replace(/\x1b\[[0-9;]*m/g, "")
+  const clean = String(stdout || "")
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .trim()
+  if (clean) {
+    const jsonStart = clean.indexOf("{")
+    const jsonEnd = clean.lastIndexOf("}")
+    if (jsonStart !== -1 && jsonEnd > jsonStart) {
+      try {
+        const obj = JSON.parse(clean.substring(jsonStart, jsonEnd + 1))
+        if (obj && obj.id) return String(obj.id)
+      } catch {
+        // fall through to text regex
+      }
+    }
+  }
   const m = clean.match(/id\s*=\s*"([0-9a-fA-F]{32})"/)
   return m ? m[1] : null
 }
@@ -108,19 +147,51 @@ function ensureKvNamespace() {
   }
 
   console.log(`[KV] 未找到名为 ${KV_TITLE} 的 namespace，正在创建 ...`)
-  const createOut = run(`npx wrangler kv namespace create ${KV_TITLE}`, {
-    silent: true,
-  })
-  console.log(createOut.trim())
-  const id = parseCreatedId(createOut)
-  if (!id) {
-    console.error("[错误] 无法从创建结果中解析 KV namespace id")
-    process.exit(1)
+  let createOut = ""
+  try {
+    createOut = run(`npx wrangler kv namespace create ${KV_TITLE}`, {
+      silent: true,
+    })
+    console.log(createOut.trim())
+  } catch (e) {
+    // 并发或历史残留导致的「已存在」等错误：不阻塞，交给下方 list 二次确认
+    const msg = String(e.stdout || e.stderr || e.message || e).trim()
+    if (!/already exists|10014/i.test(msg)) {
+      console.warn(`[KV] create 输出异常（将尝试二次校验）: ${msg.slice(0, 500)}`)
+    }
   }
-  console.log(
-    `[KV] 已创建 namespace ${KV_TITLE} (id=${id})。` +
-      `wrangler.toml 无需改动 —— wrangler 4.x 部署时会自动绑定同名 namespace。`,
+
+  // 兜底 1：老版本 create 会打印 id = "..."
+  const id = parseCreatedId(createOut)
+  if (id) {
+    console.log(
+      `[KV] 已创建 namespace ${KV_TITLE} (id=${id})。` +
+        `wrangler.toml 无需改动 —— wrangler 4.x 部署时会自动绑定同名 namespace。`,
+    )
+    return
+  }
+
+  // 兜底 2：wrangler 4.118+ 创建成功不再输出 id，以创建后 list 结果确认为准
+  let afterOut = ""
+  try {
+    afterOut = run("npx wrangler kv namespace list", { silent: true })
+  } catch {
+    afterOut = ""
+  }
+  const after = parseNamespaceList(afterOut)
+  const afterTitle = Object.keys(after).find(
+    (t) => t === KV_TITLE || t.includes(KV_TITLE),
   )
+  if (afterTitle) {
+    console.log(
+      `[KV] 已确认 namespace "${afterTitle}" (id=${after[afterTitle]})。` +
+        `wrangler.toml 无需改动 —— wrangler 4.x 部署时会自动绑定同名 namespace。`,
+    )
+    return
+  }
+
+  console.error("[错误] 无法在创建后确认 KV namespace，请检查 wrangler list/create 输出。")
+  process.exit(1)
 }
 
 function main() {
