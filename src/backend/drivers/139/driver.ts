@@ -165,6 +165,7 @@ export class Yun139Driver implements StorageDriver {
           const rawUrl = await this.client.getDownloadUrl(foundFile.contentID)
           item.raw_url = rawUrl
         } catch (e) {
+          item.raw_url_error = `139 获取下载链接失败：${(e as Error)?.message || String(e)}`
           console.warn("[139] failed to get download url in get():", e)
         }
       }

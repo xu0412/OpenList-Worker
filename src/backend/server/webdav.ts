@@ -136,9 +136,14 @@ webdavRouter.all("/*", async (c) => {
         const { item, rawUrl } = await getItem(davPath, ctx)
         if (!item) return c.text("Not found", 404)
         if (item.is_dir) return c.text("Is a directory", 400)
-        // 重定向到 rawRouter（/api/p/*）实际下载；rawRouter 已处理所有驱动的
-        // 下载协议（proxy/redirect/stream + Range + SSRF 防护）
-        return c.redirect(rawUrl || `/api/p${davPath.startsWith("/") ? "" : "/"}${davPath}`, 302)
+        // 302 策略：优先 302 到驱动返回的网盘直链（raw_url）；
+        // 驱动未返回直链时，回退到 rawRouter（/api/p/*）由 Worker 代理下载
+        //（proxy/redirect/stream + Range + SSRF 防护）。
+        const target =
+          item.raw_url ||
+          rawUrl ||
+          `/api/p${davPath.startsWith("/") ? "" : "/"}${davPath}`
+        return c.redirect(target, 302)
       }
 
       case "PUT": {
