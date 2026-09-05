@@ -176,11 +176,17 @@ export class Yun139Driver implements StorageDriver {
 
   /* ---------------- 家庭云 ---------------- */
 
-  /** 按路径解析出目标目录的 catalogID；"/" 或空表示家庭云根目录（内部以 "" 表示）。 */
+  /** 家庭云根目录：优先使用 addition.root_folder_id（子目录 catalogID）；
+   *  未配置时返回 ""，表示家庭云整体根目录。 */
+  private familyRootId(): string {
+    return (this.addition.root_folder_id || "").trim()
+  }
+
+  /** 按路径解析出目标目录的 catalogID；根目录返回 familyRootId()。 */
   private async familyDirIdForPath(clean: string): Promise<string> {
-    if (clean === "/") return ""
+    if (clean === "/") return this.familyRootId()
     const parts = clean.split("/").filter(Boolean)
-    let cur = ""
+    let cur = this.familyRootId()
     for (const part of parts) {
       const disk = await this.client.familyList(cur)
       const found = disk.folders.find((f) => f.catalogName === part)
@@ -215,7 +221,7 @@ export class Yun139Driver implements StorageDriver {
         size: 0,
         is_dir: true,
         modified: this.nowIso(),
-        sign: "",
+        sign: this.familyRootId(),
         type: 1,
         raw_url: "",
       }

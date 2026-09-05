@@ -10,6 +10,7 @@ import {
   encodeShareRefs,
   decodeShareRefs,
   sortedJsonStringify,
+  yun139TimeToIso,
 } from "./util"
 
 test("Yun139 calculation and signing", () => {
@@ -108,6 +109,67 @@ test("sortedJsonStringify produces stable key ordering", () => {
     flag: true,
   })
   assert.equal(out, '{"a":{"b":"c","y":2},"arr":["x",{"k":1}],"flag":true,"z":1}')
+})
+
+test("yun139TimeToIso normalizes 139 time formats (no NaN)", () => {
+  const iso = (y: number, mo: number, d: number, h = 0, mi = 0, s = 0) =>
+    new Date(y, mo - 1, d, h, mi, s).toISOString()
+  // 紧凑数字
+  assert.equal(yun139TimeToIso("20240905123045"), iso(2024, 9, 5, 12, 30, 45))
+  assert.equal(yun139TimeToIso("20240905"), iso(2024, 9, 5))
+  // 空格分隔（此前导致前端 NaN 的格式）
+  assert.equal(yun139TimeToIso("2024-09-05 12:30:45"), iso(2024, 9, 5, 12, 30, 45))
+  // 标准 ISO 透传
+  assert.equal(yun139TimeToIso("2024-09-05T12:30:45Z"), "2024-09-05T12:30:45.000Z")
+  // 空值/垃圾值不产生 NaN
+  assert.ok(!yun139TimeToIso("").includes("NaN"))
+  assert.ok(!yun139TimeToIso(undefined).includes("NaN"))
+  assert.ok(!yun139TimeToIso("garbage").includes("NaN"))
+})
+
+test("Yun139Driver family honors root_folder_id", async () => {
+  const addition: Yun139Addition = {
+    authorization: Buffer.from("Basic:13800138000:token|1|1|1780000000000").toString(
+      "base64",
+    ),
+    type: "family",
+    cloud_id: "cloud_1",
+    root_folder_id: "cat_base_1",
+  }
+  const driver = new Yun139Driver(addition)
+  const listedWith: string[] = []
+  ;(driver as any).client.request = async (_uri: string, body: any) => {
+    listedWith.push(String(body?.catalogID))
+    return {
+      success: true,
+      data: {
+        path: "root:/familyRoot/cat_base_1",
+        cloudCatalogList: [],
+        cloudContentList: [
+          {
+            contentID: "f1",
+            contentName: "a.txt",
+            contentSize: 1,
+            lastUpdateTime: "2024-09-05 12:30:45",
+          },
+        ],
+        totalCount: 1,
+      },
+    }
+  }
+
+  const root = await driver.get("/", "/")
+  assert.equal(root.sign, "cat_base_1")
+
+  const items = await driver.list("/", "/")
+  assert.deepEqual(listedWith, ["cat_base_1"])
+  assert.equal(items[0].name, "a.txt")
+  // 时间被归一化为 ISO，不再出现 NaN
+  assert.ok(!items[0].modified.includes("NaN"))
+  assert.equal(
+    items[0].modified,
+    new Date(2024, 8, 5, 12, 30, 45).toISOString(),
+  )
 })
 
 test("Yun139Driver share list uses root refs and merged listing", async () => {

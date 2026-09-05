@@ -327,20 +327,54 @@ export function parseShareEntries(raw: string): Array<{ linkID: string; password
   return entries
 }
 
-function yun139TimeToIso(t?: string): string {
-  if (!t) return new Date().toISOString()
-  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?/.exec(t)
-  if (!m) return new Date().toISOString()
-  const [, y, mo, d, h = "0", mi = "0", s = "0"] = m
-  const date = new Date(
-    Number(y),
-    Number(mo) - 1,
-    Number(d),
-    Number(h),
-    Number(mi),
-    Number(s),
-  )
-  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString()
+/** 归一化 139 返回的时间为 ISO 字符串，兼容：
+ *  - 紧凑数字 "20240905123045" / "20240905"
+ *  - "2024-09-05 12:30:45"（空格分隔，前端 new Date 可能解析失败导致 NaN）
+ *  - 标准 ISO（直接透传）
+ *  解析失败时回退为当前时间，避免前端出现 NaN-NaN-NaN。 */
+export function yun139TimeToIso(t?: string): string {
+  const fallback = new Date().toISOString()
+  if (!t) return fallback
+  const s = String(t).trim()
+  if (!s) return fallback
+
+  // 紧凑数字格式
+  const digits = s.replace(/\D/g, "")
+  if (digits.length >= 8 && digits.length <= 14 && !/[T:]/.test(s)) {
+    const y = Number(digits.slice(0, 4))
+    const mo = Number(digits.slice(4, 6) || "1")
+    const d = Number(digits.slice(6, 8) || "1")
+    const h = Number(digits.slice(8, 10) || "0")
+    const mi = Number(digits.slice(10, 12) || "0")
+    const sec = Number(digits.slice(12, 14) || "0")
+    const date = new Date(y, mo - 1, d, h, mi, sec)
+    return Number.isNaN(date.getTime()) ? fallback : date.toISOString()
+  }
+
+  // 标准 ISO（含 T/Z 或时区偏移）：直接交给 Date，避免被当作本地时区
+  if (/T/i.test(s) || /(?:Z|[+-]\d{2}:?\d{2})$/i.test(s)) {
+    const parsedIso = new Date(s)
+    if (!Number.isNaN(parsedIso.getTime())) return parsedIso.toISOString()
+  }
+
+  // "YYYY-MM-DD HH:MM:SS"（空格分隔，按本地时区解析）
+  const m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?: (\d{1,2}):(\d{2})(?::(\d{2}))?)?/.exec(s)
+  if (m) {
+    const [, y, mo, d, h = "0", mi = "0", sec = "0"] = m
+    const date = new Date(
+      Number(y),
+      Number(mo) - 1,
+      Number(d),
+      Number(h),
+      Number(mi),
+      Number(sec),
+    )
+    return Number.isNaN(date.getTime()) ? fallback : date.toISOString()
+  }
+
+  // 其他可解析格式
+  const parsed = new Date(s)
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed.toISOString()
 }
 
 /* ===================== API 客户端 ===================== */
@@ -795,7 +829,7 @@ export class Yun139ApiClient {
         folders.push({
           catalogID: c.catalogID || "",
           catalogName: c.catalogName || "",
-          updateTime: c.lastUpdateTime || c.createTime,
+          updateTime: yun139TimeToIso(c.lastUpdateTime || c.createTime),
         })
       }
       for (const c of contents) {
@@ -803,8 +837,8 @@ export class Yun139ApiClient {
           contentID: c.contentID,
           contentName: c.contentName,
           contentSize: c.contentSize,
-          updateTime: c.lastUpdateTime || c.createTime,
-          createTime: c.createTime,
+          updateTime: yun139TimeToIso(c.lastUpdateTime || c.createTime),
+          createTime: yun139TimeToIso(c.createTime),
           thumbnailURL: c.thumbnailURL || c.bigThumbnailURL,
         })
       }
