@@ -1,0 +1,53 @@
+name: Deploy to Cloudflare Workers
+
+# 用 GitHub Actions 在云端 Runner 执行 wrangler deploy，
+# 取代 Cloudflare Dashboard 的 Workers Builds（避免 Error 12052）。
+# 详见 docs/0-Getting-Started/0-00004-Deploy-GitHub-Actions.md
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# 同一时间只允许一个部署在跑，避免 push 连发时并发 deploy 互相覆盖
+concurrency:
+  group: deploy-cloudflare-workers
+  cancel-in-progress: false
+
+# 本工作流只读仓库，不需要写权限
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # 前端仓库 clone + install + vite build 耗时较长，放宽超时
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      # 复用仓库自带一键部署入口 scripts/deploy.js：
+      #   1. 检测 / 兜底创建 OPENLIST_KV namespace（Wrangler 4.x Automatic Provisioning 免填 id）
+      #   2. 拉取官方 OpenList-Frontend 产物并构建到 dist/（[assets] 绑定目录）
+      #   3. npx wrangler deploy
+      # 认证凭据来自 GitHub Actions Secrets（请先在仓库 Settings -> Secrets 配置，
+      # 详见 docs/0-Getting-Started/0-00004-Deploy-GitHub-Actions.md）
+      - name: Deploy to Cloudflare Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/deploy.js
